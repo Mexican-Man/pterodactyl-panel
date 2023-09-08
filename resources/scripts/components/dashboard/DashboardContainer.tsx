@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import Input from '@/components/elements/Input';
 import { Server } from '@/api/server/getServer';
 import getServers from '@/api/getServers';
+import Select from '@/components/elements/Select';
 import ServerRow from '@/components/dashboard/ServerRow';
 import Spinner from '@/components/elements/Spinner';
 import PageContentBlock from '@/components/elements/PageContentBlock';
@@ -29,6 +31,29 @@ export default () => {
         () => getServers({ page, type: showOnlyAdmin && rootAdmin ? 'admin' : undefined })
     );
 
+    const [sort, setSort] = useState(0);
+    const [desc, setDesc] = useState(false);
+    const [filter, setFilter] = useState('');
+
+    useEffect(() => {
+        const sortOrder = window.localStorage.getItem('SORT_ORDER');
+        if (sortOrder !== null) setSort(JSON.parse(sortOrder));
+
+        const sortDesc = window.localStorage.getItem('SORT_DESC');
+        if (sortDesc !== null) setDesc(JSON.parse(sortDesc));
+    }, []);
+
+    useEffect(() => {
+        window.localStorage.setItem('SORT_ORDER', JSON.stringify(sort));
+        window.localStorage.setItem('SORT_DESC', JSON.stringify(desc));
+    }, [sort, desc]);
+
+    const specialSortFunction = (a: string, b: string): number => {
+        a = a.replace(/\d+/g, (match) => String.fromCodePoint(parseInt(match)));
+        b = b.replace(/\d+/g, (match) => String.fromCodePoint(parseInt(match)));
+        return a > b ? 1 : a < b ? -1 : 0;
+    };
+
     useEffect(() => {
         if (!servers) return;
         if (servers.pagination.currentPage > 1 && !servers.items.length) {
@@ -51,16 +76,47 @@ export default () => {
     return (
         <PageContentBlock title={'Dashboard'} showFlashKey={'dashboard'}>
             {rootAdmin && (
-                <div css={tw`mb-2 flex justify-end items-center`}>
-                    <p css={tw`uppercase text-xs text-neutral-400 mr-2`}>
-                        {showOnlyAdmin ? "Showing others' servers" : 'Showing your servers'}
-                    </p>
-                    <Switch
-                        name={'show_all_servers'}
-                        defaultChecked={showOnlyAdmin}
-                        onChange={() => setShowOnlyAdmin((s) => !s)}
-                    />
-                </div>
+                <>
+                    <div css={tw`mb-2 flex justify-end items-center`}>
+                        <p css={tw`uppercase text-xs text-neutral-400 mr-2`}>
+                            {showOnlyAdmin ? "Showing others' servers" : 'Showing your servers'}
+                        </p>
+                        <Switch
+                            name={'show_all_servers'}
+                            defaultChecked={showOnlyAdmin}
+                            onChange={() => setShowOnlyAdmin((s) => !s)}
+                        />
+                    </div>
+                    <div css={tw`mb-5 flex justify-start items-center`}>
+                        <Input
+                            css={tw`mx-1`}
+                            placeholder={'Filter by name'}
+                            value={filter}
+                            onChange={(e) => setFilter(e.currentTarget.value)}
+                        />
+                        <div css={tw`mx-1`}>
+                            <Select
+                                css={tw`mr-4`}
+                                value={sort}
+                                onChange={(e) => setSort(Number(e.currentTarget.value))}
+                            >
+                                <option value='0'>Alphabetically</option>
+                                <option value='1'>By Age</option>
+                                <option value='2'>By Node</option>
+                            </Select>
+                        </div>
+                        <div css={tw`mx-1`}>
+                            <Select
+                                css={tw`mr-4`}
+                                value={desc ? 1 : 0}
+                                onChange={(e) => setDesc(e.currentTarget.value === '1')}
+                            >
+                                <option value='0'>Ascending</option>
+                                <option value='1'>Descending</option>
+                            </Select>
+                        </div>
+                    </div>
+                </>
             )}
             {!servers ? (
                 <Spinner centered size={'large'} />
@@ -68,9 +124,32 @@ export default () => {
                 <Pagination data={servers} onPageSelect={setPage}>
                     {({ items }) =>
                         items.length > 0 ? (
-                            items.map((server, index) => (
-                                <ServerRow key={server.uuid} server={server} css={index > 0 ? tw`mt-2` : undefined} />
-                            ))
+                            (() => {
+                                const list = (() => {
+                                    switch (sort) {
+                                        default:
+                                        case 0:
+                                            return items.sort((a, b) => specialSortFunction(a.name, b.name));
+                                        case 1:
+                                            return items;
+                                        case 2:
+                                            return items
+                                                .sort((a, b) => specialSortFunction(a.name, b.name))
+                                                .sort((a, b) => specialSortFunction(a.node, b.node));
+                                    }
+                                })();
+                                return desc ? list.slice().reverse() : list; // Slice to copy array, else reverse() will reverse the original array.
+                            })()
+                                .filter((server) => {
+                                    return server.name.toLowerCase().includes(filter.toLowerCase());
+                                })
+                                .map((server, index) => (
+                                    <ServerRow
+                                        key={server.uuid}
+                                        server={server}
+                                        css={index > 0 ? tw`mt-2` : undefined}
+                                    />
+                                ))
                         ) : (
                             <p css={tw`text-center text-sm text-neutral-400`}>
                                 {showOnlyAdmin
